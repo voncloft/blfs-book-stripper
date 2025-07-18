@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+TARGET="https://www.linuxfromscratch.org/blfs/view/svn/"
+OUTFILE="blfs-categorized.txt"
+
+unwanted='appendices|introduction|legalnotice|mit|preface'
+
+curl -s "$TARGET" | \
+grep -Eo 'href="[^"]+\.html"' | \
+sed -e 's/href="//;s/"$//' | \
+grep -vE '(^|/)(longindex|download|index)\.html$' | \
+while read -r href; do
+  # Skip unwanted URLs
+  if echo "$href" | grep -qiE "$unwanted"; then
+    continue
+  fi
+
+  category=$(echo "$href" | cut -d/ -f1 | tr -d '[:space:]')
+  pkg=$(basename "$href" .html | tr -d '[:space:]')
+
+  # Skip if category or package is empty
+  if [[ -z "$category" || -z "$pkg" ]]; then
+    continue
+  fi
+
+  echo "$category:$pkg"
+done | sort -t: -k1,1 -k2,2 > raw-cat.txt
+
+{
+  lastcat=""
+  while IFS=":" read -r category pkg; do
+    if [[ "$category" != "$lastcat" ]]; then
+      printf "\n%s:\n" "$category"
+      lastcat=$category
+    fi
+    printf "  - %s\n" "$pkg"
+  done < raw-cat.txt
+} > "$OUTFILE"
+
+echo "Done → $OUTFILE"

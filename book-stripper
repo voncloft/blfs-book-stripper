@@ -1,0 +1,42 @@
+#!/bin/bash
+
+CATEGORIZED_LIST="blfs-categorized.txt"
+STRIPPER="page-stripper"
+PARENT_DIR="BLFS"
+> /var/cache/scratchpkg/logs/booklog.txt
+# Check prerequisites
+[ ! -x "$(command -v $STRIPPER)" ] && {
+    echo "Error: '$STRIPPER' must be in PATH and executable."
+    exit 1
+}
+
+mkdir -p "$PARENT_DIR"
+
+while IFS= read -r line; do
+    # If line ends in colon, it's a new category
+    if [[ "$line" =~ :$ ]]; then
+        CATEGORY="${line%:}"
+        mkdir -p "$PARENT_DIR/$CATEGORY"
+        echo "[*] Category: $CATEGORY"
+        continue
+    fi
+
+    # Package line (non-empty, indented with dash)
+    if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*(.*)$ ]]; then
+        PACKAGE="${BASH_REMATCH[1]}"
+        echo "[+] Processing $PACKAGE in $CATEGORY"
+
+        # Make subdirectory, cd into it
+        mkdir -p "$PARENT_DIR/$CATEGORY/$PACKAGE"
+        pushd "$PARENT_DIR/$CATEGORY/$PACKAGE" > /dev/null
+
+        # Run the stripper
+        #"$STRIPPER" "$PACKAGE"
+	#if ! "$STRIPPER" "$PACKAGE"; then
+    	if ! timeout 30 "$STRIPPER" "$PACKAGE"; then
+    		echo "[!] Failed: $PACKAGE in $CATEGORY" >> /var/cache/scratchpkg/logs/booklog.txt
+	fi
+        # Return to base dir
+        popd > /dev/null
+    fi
+done < "$CATEGORIZED_LIST"

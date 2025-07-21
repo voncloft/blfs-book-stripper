@@ -2,12 +2,15 @@
 
 # Check for input (package name)
 if [ -z "$1" ]; then
-    echo "Usage: $0 <package_name>"
-    echo "Example: $0 shadow"
+    echo "Usage: $0 <package_name> [-32]"
+    echo "Example: $0 shadow -32"
     exit 1
 fi
 
 PACKAGE_NAME="$1"
+IS_32BIT_BUILD=false
+[ "$2" == "-32" ] && IS_32BIT_BUILD=true
+
 BASE_URL="https://www.linuxfromscratch.org/blfs/view/svn"
 OUTPUT_FILE="$PWD/spkgbuild"
 TEMP_FILE=$(mktemp)
@@ -22,44 +25,14 @@ get_url() {
         local url="$BASE_URL/$section/$pkg.html"
         if curl -s -I "$url" | grep -q "200 OK"; then
             echo "$url"
-	    echo "$pkg succeeded" >> /var/cache/scratchpkg/logs/booklog.txt
+            echo "$pkg succeeded" >> /var/cache/scratchpkg/logs/booklog.txt
             return 0
- 
         fi
     done
     echo "Error: Could not find package '$pkg' in BLFS SVN branch" | tee -a "$DEBUG_LOG"
     rm "$TEMP_FILE"
     exit 1
 }
-#get_url() {
-#    local pkg="$1"
-#    local sections=("basicnet" "general" "gnome" "kde" "lxqt" "multimedia" "postlfs" "pst" "server" "x" "xfce" "xsoft")
-#    local max_attempts=3
-
-#    for section in "${sections[@]}"; do
-#        local url="$BASE_URL/$section/$pkg.html"
-#        
-#        local attempt=1
-#        while [ $attempt -le $max_attempts ]; do
-#            if curl -s -I "$url" | grep -q "200 OK"; then
-#                echo "$url"
-#                echo "$pkg succeeded" >> /var/cache/scratchpkg/logs/booklog.txt
-#                return 0
-#            else
-#                echo "Attempt $attempt failed for $url"
-#                #echo "$pkg failed in section $section" >> /var/cache/scratchpkg/logs/booklog.txt
-#                ((attempt++))
-#                sleep 1
-#            fi
-#        done
-
-#    done
-
-#    echo "Error: Could not find package '$pkg' in BLFS SVN branch" | tee -a "$DEBUG_LOG"
-    #echo "$pkg not found in book" >> var/cache/scratchpkg/logs/booklog.txt
-#    rm "$TEMP_FILE"
-#    exit 1
-#}
 
 PAGE_URL=$(get_url "$PACKAGE_NAME")
 echo "Found URL: $PAGE_URL" >> "$DEBUG_LOG"
@@ -78,9 +51,7 @@ extract_package_info() {
     echo "PACKAGE_INFO: $PACKAGE_INFO" >> "$DEBUG_LOG"
 
     VERSION=$(echo "$PACKAGE_INFO" | sed -n 's/.*-\([0-9][0-9.]*[0-9]\)/\1/p')
-    #NAME=$(echo "$PACKAGE_INFO" | sed -e "s/-$VERSION$//" | tr '[:upper:]' '[:lower:]')
     NAME=$(echo "$PACKAGE_INFO" | sed -e "s/-$VERSION$//" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-
     echo "NAME: $NAME" >> "$DEBUG_LOG"
     echo "VERSION: $VERSION" >> "$DEBUG_LOG"
 
@@ -90,20 +61,21 @@ extract_package_info() {
     [ -z "$DESCRIPTION" ] && DESCRIPTION="No description available"
     echo "DESCRIPTION: $DESCRIPTION" >> "$DEBUG_LOG"
 
+    #DEPENDENCIES=$(xmllint --html --recover --xpath '//p[@class="required"]/a/text() | //p[@class="recommended"]/a/@title' "$TEMP_FILE" 2>/dev/null | \
+    #    sed -E 's/title="([^"]+)"/\1/' | sed -E 's/-[0-9][0-9.]*[0-9]//' | tr '\n' ' ' | sed -e 's/  */ /g' -e 's/^ *//;s/ *$//' -e 's/,//g' -e 's/ and / /g' | tr '[:upper:]' '[:lower:]')
+    #[ -z "$DEPENDENCIES" ] && DEPENDENCIES="none"
+    #echo "DEPENDENCIES: $DEPENDENCIES" >> "$DEBUG_LOG"
     DEPENDENCIES=$(xmllint --html --recover --xpath '//p[@class="required"]/a/text() | //p[@class="recommended"]/a/@title' "$TEMP_FILE" 2>/dev/null | \
-        sed -E 's/title="([^"]+)"/\1/' | \
-        sed -E 's/-[0-9][0-9.]*[0-9]//' | \
-        tr '\n' ' ' | \
-        sed -e 's/  */ /g' -e 's/^ *//;s/ *$//' -e 's/,//g' -e 's/ and / /g' | \
-        tr '[:upper:]' '[:lower:]')
-    [ -z "$DEPENDENCIES" ] && DEPENDENCIES="none"
-    echo "DEPENDENCIES: $DEPENDENCIES" >> "$DEBUG_LOG"
+    sed -E 's/title="([^"]+)"/\1/' | \
+    sed -E 's/-[0-9][0-9.]*[0-9]//' | \
+    tr '\n' '\n' | \
+    sed -e 's/ and / /g' -e 's/,//g' -e 's/[^[:alnum:] ]//g' | \
+    awk '{ gsub(/[[:space:]]+/, "", $0); print tolower($0) }' | \
+    paste -sd' ' -)
 
     SOURCE_URLS=$(xmllint --html --recover --xpath '//a[@class="ulink" and (contains(@href, ".tar.") or contains(@href, ".patch"))]/@href' "$TEMP_FILE" 2>/dev/null | \
         sed -e 's/href="//' -e 's/"$//')
-
     if [ -n "$SOURCE_URLS" ]; then
-        # Format source="url1\nurl2" with no empty lines or extra spaces
         SOURCE_FIELD="source=\"$(echo "$SOURCE_URLS" | tr ' ' '\n' | sed '/^$/d')\""
     else
         SOURCE_FIELD='source=""'
@@ -119,9 +91,6 @@ extract_package_info() {
     fi
 
     PATCH_COMMAND=""
-    if echo "$SOURCE_URLS" | grep -q ".patch"; then
-        PATCH_COMMAND="[ -f *.patch ] && patch -p1 < *.patch"
-    fi
 
     ALL_COMMANDS=$(printf "%s\n%s" "$BUILD_INSTRUCTIONS" "$EOF_COMMANDS")
     if [ -n "$PATCH_COMMAND" ]; then
@@ -129,6 +98,14 @@ extract_package_info() {
     fi
 
     BUILD_COMMANDS=$(echo "$ALL_COMMANDS" | sed -e 's/^[ \t]*//' -e 's/[ \t]*$//' | grep -v '^$' | sed -e 's/&&$//' -e 's/&& */&& \\\n        /g')
+
+    if $IS_32BIT_BUILD; then
+        EXTRA_EXPORTS=$'export CC="gcc -m32"\nexport CXX="g++ -m32"\nexport PKG_CONFIG_LIBDIR="/usr/lib32/pkgconfig"'
+        POST_INSTALL=$'\nmake DESTDIR=$PWD/DESTDIR install\nmkdir -p $PKG/usr/lib32\ncp -Rv DESTDIR/usr/lib32/* $PKG/usr/lib32'
+    else
+        EXTRA_EXPORTS=""
+        POST_INSTALL=""
+    fi
 
     cat << EOF > "$output_file"
 # description   : $DESCRIPTION
@@ -142,8 +119,9 @@ $SOURCE_FIELD
 options="!checksum"
 
 build() {
-        cd \$name-\$version
-        $BUILD_COMMANDS
+cd \$name-\$version
+$EXTRA_EXPORTS
+$BUILD_COMMANDS$POST_INSTALL
 }
 EOF
 
@@ -153,10 +131,25 @@ EOF
 extract_package_info "$PAGE_URL" "$OUTPUT_FILE"
 
 rm "$TEMP_FILE"
-sed -Ei 's/^make(\s+)/make DESTDIR=\$PKG\1/' spkgbuild
-sed -Ei 's/^ninja(\s+)/DESTDIR=\$PKG ninja\1/' spkgbuild
+if ! $IS_32BIT_BUILD; then
+	sed -Ei 's/^make(\s+)/make DESTDIR=\$PKG\1/' spkgbuild
+	sed -Ei 's/^ninja(\s+)/DESTDIR=\$PKG ninja\1/' spkgbuild
+else
+	sed -i '/^[[:space:]]*make[[:space:]]\+install/d' spkgbuild
+
+fi
 sed -Ei 's/&amp;//g' spkgbuild
 sed -Ei 's/&gt;/>/g' spkgbuild
 sed -Ei 's/&lt;/</g' spkgbuild
+sed -Ei 's/cat > /cat > $PKG/g' spkgbuild
+sed -i '/^build() {/,/^}/ {
+    /^build() {/b
+    /^}/b
+    /cat >/b
+    s/^/    /
+}' spkgbuild
+#sed -i -E 's/^[[:space:]]+(EOF)$/\1/' spkgbuild
+sed -Ei 's/    EOF/EOF/g' spkgbuild
+
 echo "spkgbuild file generated: $OUTPUT_FILE"
 echo "Debug log saved to: $DEBUG_LOG"

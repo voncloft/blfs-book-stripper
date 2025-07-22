@@ -101,7 +101,7 @@ extract_package_info() {
 
     if $IS_32BIT_BUILD; then
         EXTRA_EXPORTS=$'export CC="gcc -m32"\nexport CXX="g++ -m32"\nexport PKG_CONFIG_LIBDIR="/usr/lib32/pkgconfig"'
-        POST_INSTALL=$'\nmake DESTDIR=$PWD/DESTDIR install\nmkdir -p $PKG/usr/lib32\ncp -Rv DESTDIR/usr/lib32/* $PKG/usr/lib32'
+        POST_INSTALL=$'\nmkdir -p $PKG/usr/lib32\ncp -Rv DESTDIR/usr/lib32/* $PKG/usr/lib32'
     else
         EXTRA_EXPORTS=""
         POST_INSTALL=""
@@ -135,7 +135,9 @@ if ! $IS_32BIT_BUILD; then
 	sed -Ei 's/^make(\s+)/make DESTDIR=\$PKG\1/' spkgbuild
 	sed -Ei 's/^ninja(\s+)/DESTDIR=\$PKG ninja\1/' spkgbuild
 else
-	sed -i '/^[[:space:]]*make[[:space:]]\+install/d' spkgbuild
+	sed -i 's#^make install#make DESTDIR=$PWD/DESTDIR install#' spkgbuild
+	sed -i 's#^ninja install#DESTDIR=$PWD/DESTDIR ninja install#' spkgbuild
+
 
 fi
 sed -Ei 's/&amp;//g' spkgbuild

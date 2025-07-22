@@ -12,3 +12,10 @@ This works for most packages - however it is always a good idea to double check.
 I offer no support, everything is on YOU!!
 
 
+run example
+
+64 bit:
+page-stripper libdrm
+
+32 bit:
+page-stripper libdrm -32

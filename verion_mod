@@ -1,4 +1,4 @@
-for file in /sources/BLFS/basicnet/*/spkgbuild; do
+for file in /sources/BLFS-unstable/*/*/spkgbuild; do
   [ -f "$file" ] || continue
   ver=$(awk -F= '/^version[[:space:]]*=/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$file")
   [ -n "$ver" ] || continue

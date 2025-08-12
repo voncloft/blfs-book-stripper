@@ -1,0 +1,10 @@
+for file in /sources/BLFS/basicnet/*/spkgbuild; do
+  [ -f "$file" ] || continue
+  ver=$(awk -F= '/^version[[:space:]]*=/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$file")
+  [ -n "$ver" ] || continue
+  # Replace version value with $version in all lines EXCEPT the version= line
+  awk -v v="$ver" '
+    /^version[[:space:]]*=/ { print; next }
+    { gsub(v, "$version"); print }
+  ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+done

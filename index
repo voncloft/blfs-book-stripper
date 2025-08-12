@@ -1,39 +1,38 @@
 #!/usr/bin/env bash
 TARGET="https://www.linuxfromscratch.org/blfs/view/svn/"
-OUTFILE="blfs-categorized.txt"
+OUTFILE="/var/cache/scratchpkg/workbook/blfs-categorized.txt"
+touch "$OUTFILE"
+unwanted='appendices|introduction|legalnotice|mit|preface|longindex|download|index'
 
-unwanted='appendices|introduction|legalnotice|mit|preface'
+categories=("basicnet" "general" "gnome" "kde" "lxqt" "multimedia" "postlfs" "pst" "server" "x" "xfce" "xsoft")
 
-curl -s "$TARGET" | \
-grep -Eo 'href="[^"]+\.html"' | \
-sed -e 's/href="//;s/"$//' | \
-grep -vE '(^|/)(longindex|download|index)\.html$' | \
-while read -r href; do
-  # Skip unwanted URLs
-  if echo "$href" | grep -qiE "$unwanted"; then
-    continue
-  fi
+> raw-cat.txt
 
-  category=$(echo "$href" | cut -d/ -f1 | tr -d '[:space:]')
-  pkg=$(basename "$href" .html | tr -d '[:space:]')
+for category in "${categories[@]}"; do
+  curl -s "$TARGET$category/" | \
+  grep -Eo 'href="[^"]+\.html"' | \
+  sed -e 's/href="//;s/"$//' | \
+  grep -viE "(^|/)$unwanted\.html$" | \
+  while read -r href; do
+    pkg=$(basename "$href" .html | tr -d '[:space:]')
+    [[ -z "$pkg" ]] && continue
+    echo "$category:$pkg"
+  done >> raw-cat.txt
+done
 
-  # Skip if category or package is empty
-  if [[ -z "$category" || -z "$pkg" ]]; then
-    continue
-  fi
-
-  echo "$category:$pkg"
-done | sort -t: -k1,1 -k2,2 > raw-cat.txt
+sort -t: -k1,1 -k2,2 raw-cat.txt > sorted-raw-cat.txt
+mv sorted-raw-cat.txt raw-cat.txt
 
 {
   lastcat=""
   while IFS=":" read -r category pkg; do
     if [[ "$category" != "$lastcat" ]]; then
       printf "\n%s:\n" "$category"
-      lastcat=$category
+      lastcat="$category"
     fi
     printf "  - %s\n" "$pkg"
   done < raw-cat.txt
 } > "$OUTFILE"
 
+rm raw-cat.txt
 echo "Done → $OUTFILE"
